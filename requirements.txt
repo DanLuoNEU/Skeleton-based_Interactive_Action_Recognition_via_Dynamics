@@ -1,0 +1,42 @@
+# pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html \\
+# pip install setuptools==59.5.0 \\
+# pip install tensorboard
+
+absl-py==2.1.0
+certifi==2024.2.2
+contourpy @ file:///croot/contourpy_1700583582875/work
+cycler @ file:///tmp/build/80754af9/cycler_1637851556182/work
+fonttools==4.25.0
+grpcio==1.62.0
+importlib-metadata==7.0.1
+importlib-resources @ file:///croot/importlib_resources-suite_1704281845041/work
+kiwisolver @ file:///croot/kiwisolver_1672387140495/work
+Markdown==3.5.2
+MarkupSafe==2.1.5
+matplotlib==3.3.0
+munkres==1.1.4
+numpy @ file:///croot/numpy_and_numpy_base_1704311704800/work/dist/numpy-1.26.3-cp39-cp39-linux_x86_64.whl#sha256=a72dd65e48705a445938c2d0d63dbe8369da2814b2b57b63583403bddb0f45ec
+packaging @ file:///croot/packaging_1693575174725/work
+pandas==2.2.0
+pillow @ file:///croot/pillow_1707233021655/work
+ply==3.11
+protobuf==4.25.3
+pyparsing @ file:///opt/conda/conda-bld/pyparsing_1661452539315/work
+PyQt5==5.15.10
+PyQt5-sip @ file:///croot/pyqt-split_1698769088074/work/pyqt_sip
+python-dateutil @ file:///tmp/build/80754af9/python-dateutil_1626374649649/work
+pytz==2024.1
+scipy==1.12.0
+sip @ file:///croot/sip_1698675935381/work
+six @ file:///tmp/build/80754af9/six_1644875935023/work
+tensorboard==2.16.2
+tensorboard-data-server==0.7.2
+tomli @ file:///opt/conda/conda-bld/tomli_1657175507142/work
+torch==1.9.1+cu111
+torchaudio==0.9.1
+torchvision==0.10.1+cu111
+tornado @ file:///croot/tornado_1696936946304/work
+typing_extensions==4.9.0
+tzdata==2024.1
+Werkzeug==3.0.1
+zipp @ file:///croot/zipp_1704206909481/work
