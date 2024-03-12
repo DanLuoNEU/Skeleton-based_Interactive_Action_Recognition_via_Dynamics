@@ -93,24 +93,24 @@ class GumbelSigmoid(torch.nn.Module):
         # pdb.set_trace()
         return soft_samples
 
-    def gumbel_sigmoid(self, logits,thresh, temperature=2 / 3, hard=False, inference=False):
+    def gumbel_sigmoid(self, logits, thresh, temperature=2 / 3, hard=False, inference=False):
         out = self.gumbel_sigmoid_sample(logits, temperature, inference)
         if hard:
             out = HardSoftmax.apply(out,thresh)
         # pdb.set_trace()
         return out
 
-    def forward(self, logits,thresh, force_hard=False, temperature=2 / 3, inference=False):
+    def forward(self, logits, thresh, force_hard=False, temperature=2 / 3, inference=False):
         # inference = not self.training
         inference = inference
         # if self.training and not force_hard:
         if not inference and not force_hard:
             return self.gumbel_sigmoid(
-                logits, thresh, temperature=temperature, hard=False, inference=inference
+                logits, thresh, temperature, hard=False, inference=inference
             )
         else:
             return self.gumbel_sigmoid(
-                logits, thresh,temperature, hard=True, inference=inference
+                logits, thresh, temperature, hard=True, inference=inference
             )
 
 

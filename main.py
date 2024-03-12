@@ -31,8 +31,10 @@ def main(args):
     str_net_2 = f"{'wiF' if args.wiF else 'woF'}_{'wiBI' if args.wiBI else 'woBI'}_{'wiCL' if args.wiCL else 'woCL'}"
     
     
-    args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}{'' if args.wiD!='' else '_woD'}_{str_net_1+str_net_2}_T{args.T}_f{args.lam_f}_{args.lam1}_{args.lam2}"
+    args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}{'' if args.wiD!='' else '_woD'}_{str_net_1+str_net_2}"
+    args.name_exp = args.name_exp + f"_T{args.T}_f{args.lam_f}_{args.lam1}_{args.lam2}_{args.Alpha}"
     print(args.name_exp)
+    print('START Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M'))
     writers=[SummaryWriter(log_dir=f'runs/{args.name_exp}_train'),
              SummaryWriter(log_dir=f'runs/{args.name_exp}_test')]
     if args.mode == 'D':

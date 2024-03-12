@@ -177,7 +177,7 @@ class DYAN_B(nn.Module):
         self.Drr = Drr
         self.Dtheta = Dtheta
         self.wiCY = args.wiCY
-        self.wiB  = args.wiB
+        self.wiBI  = args.wiBI
         self.wiCC = args.wiCC
         
         self.sparseCoding = DYANEnc(self.Drr, self.Dtheta, args.lam_f, args.gpu_id)
@@ -189,7 +189,8 @@ class DYAN_B(nn.Module):
             update_dict.update(pret_dict)
             self.sparseCoding.load_state_dict(update_dict)
         self.CoefNet = CoefNet(args, num_jts=num_joints)
-        if args.wiB:
+        if args.wiBI:
+            self.th_gumbel = args.th_gumbel
             self.BinaryCoding = GumbelSigmoid()
         if args.wiCL:
             self.cls = nn.Sequential(nn.Linear(128,128),nn.LeakyReLU(),nn.Linear(128,args.num_class))
@@ -204,12 +205,13 @@ class DYAN_B(nn.Module):
                 torch.nn.init.xavier_uniform_(m.weight, gain=1)
         self.cls.apply(weight_init)
         
-    def forward_wiCC(self, C,):
+    def forward_wiCC(self, C):
+
         f_cls = self.CoefNet(C)
 
         return f_cls
 
-    def forward_woCC(self, C,):
+    def forward_woCC(self, C):
         D = C.shape[-1]
         lastFeat_1 = self.CoefNet(C[:,:,:int(D/2)])
         lastFeat_2 = self.CoefNet(C[:,:,int(D/2):])
@@ -223,8 +225,13 @@ class DYAN_B(nn.Module):
 
         # C: N(161) x D(25x3x2), R: T x D
         C, D, R = self.sparseCoding(x, T) # group lasso
-        # if self.wiB:
-            
+        if self.wiBI:
+            B = self.BinaryCoding(C**2, self.th_gumbel, force_hard=True,
+                                  temperature=0.1, inference=True)
+            C = C * B
+            R = torch.matmul(D, C)
+        else:
+            B = torch.zeros_like(C.shape).to(C)
         # Concatenate Coefficients
         if self.wiCC:
             f_cls = self.forward_wiCC(C)
@@ -232,7 +239,7 @@ class DYAN_B(nn.Module):
             f_cls = self.forward_woCC(C)
         
         label = self.cls(f_cls)
-        return label, R
+        return label, R , B
 
 
 class binarizeSparseCode(nn.Module):

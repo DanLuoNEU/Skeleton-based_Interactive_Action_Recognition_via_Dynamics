@@ -23,6 +23,9 @@ def init_seed(seed):
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
 
+def log(log_line, f_log):
+    print(log_line)
+    f_log.write(log_line+'\n')
 
 def train_D(args, writers,
             trainloader, testloader,
@@ -42,6 +45,7 @@ def train_D(args, writers,
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)
     args.dir_save = os.path.join(args.work_dir, args.name_exp,datetime.datetime.now().strftime("%Y%m%d_%H%M"))
     os.makedirs(args.dir_save, exist_ok=True)
+    f_log = open(os.path.join(args.dir_save,'log.txt'),'w')
 
     net.train()
     for epoch in range(1, args.epoch_D+1):
@@ -69,7 +73,7 @@ def train_D(args, writers,
             l_mse.update(loss_mse.data.item())
             losses.update(loss.data.item())
             if i%(trainloader.__len__()//10)==0:
-                print(f'Train({epoch})|ite({i+1}):', '|loss|', losses.value, '|l_mse|', l_mse.value)
+                log(f'Train({epoch})|ite({i+1})|loss|{losses.value}|l_mse|{l_mse.value}',f_log)
                 writers[0].add_scalar("Loss", losses.value, i+(epoch-1)*len(trainloader))
                 writers[0].add_scalar("Loss_MSE", l_mse.value, i+(epoch-1)*len(trainloader))
         scheduler.step()
@@ -78,10 +82,12 @@ def train_D(args, writers,
                     'optimizer': optimizer.state_dict()},
                     os.path.join(args.dir_save, str(epoch) + '.pth'))
         loss, loss_mse, _, _ = test_D(args, testloader, net) 
-        print(f'Train({epoch})| loss |{losses.avg}| l_mse |{l_mse.avg}')
-        print(f'Test ({epoch})| loss |{loss}| l_mse |{loss_mse}')
+        log(f'Train({epoch})| loss |{losses.avg}| l_mse |{l_mse.avg}', f_log)
+        log(f'Test ({epoch})| loss |{loss}| l_mse |{loss_mse}',f_log)
         writers[1].add_scalar("Loss", loss, epoch*len(trainloader))
         writers[1].add_scalar("Loss_MSE", loss_mse, epoch*len(trainloader))
+    log(f"END Timstamp:{datetime.datetime.now().strftime('%Y:%m:%d %H:%M')}",f_log)
+    f_log.close()
 
 
 def test_D(args, dataloader, net,
@@ -117,7 +123,7 @@ def train_cls(args, writers,
             trainloader, testloader,
             mseLoss=torch.nn.MSELoss(),
             criterion = torch.nn.CrossEntropyLoss(),
-            L1loss=torch.nn.SmoothL1Loss()):
+            L1Loss=torch.nn.SmoothL1Loss()):
     # Initialize DYAN Dictionary
     Drr, Dtheta = get_Drr_Dtheta(args.N)
     # Select Network
@@ -136,6 +142,7 @@ def train_cls(args, writers,
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)
     args.dir_save = os.path.join(args.work_dir, args.name_exp,datetime.datetime.now().strftime("%Y%m%d_%H%M"))
     os.makedirs(args.dir_save, exist_ok=True)
+    f_log = open(os.path.join(args.dir_save,'log.txt'),'w')
 
     net.train()
     for epoch in range(1, args.Epoch+1):
@@ -155,11 +162,12 @@ def train_cls(args, writers,
                 Y = torch.cat((skeletons[:,0,:,:],skeletons[:,1,:,:]),2).cuda(args.gpu_id)
             else:
                 Y = skeletons.cuda(args.gpu_id)
-            out_label, R = net(Y,T) # y: (batch_size, num_clips) x T x ((num_joints x dim_joints) x num_subj)
+            out_label, R, B = net(Y,T) # y: (batch_size, num_clips) x T x ((num_joints x dim_joints) x num_subj)
             out_label = torch.mean(out_label.view(-1, n_clips, args.num_class), 1)
             loss_cls = criterion(out_label, gt_label)
             loss_mse = mseLoss(R, Y)
-            loss = args.lam1*loss_cls + args.lam2*loss_mse
+            loss_bi = L1Loss(torch.zeros_like(B).to(B),B)
+            loss = args.lam1*loss_cls + args.lam2*loss_mse + args.Alpha*loss_bi
 
             optimizer.zero_grad()
             loss.backward()
@@ -168,27 +176,32 @@ def train_cls(args, writers,
             accs.update(accuracy(out_label, gt_label)[0].data.item())
             losses.update(loss.data.item())
             l_cls.update(loss_cls.data.item())
+            l_bi.update(loss_bi.data.item())
             l_mse.update(loss_mse.data.item())
             if i%(trainloader.__len__()//10)==0:
-                print(f'Train|ite({epoch}|{i+1}): |loss|', losses.value, '|l_cls|', l_cls.value,
-                      '|l_mse|', l_mse.value,'|acc|', accs.value,'%')
+                log(f'Train|ite({epoch}|{i+1}): |loss|{losses.value}|l_cls|{l_cls.value}'+ 
+                    f'|l_bi|{l_bi.value}|l_mse|{l_mse.value}|acc|{accs.value}%', f_log)
                 
         scheduler.step()
-        print(f'Train({epoch})|acc|{accs.avg}%|loss|{losses.avg}|l_cls|{l_cls.avg}|l_mse|{l_mse.avg}')
+        log(f'Train({epoch})|acc|{accs.avg}%|loss|{losses.avg}|l_cls|{l_cls.avg}|l_bi|{l_bi.avg}|l_mse|{l_mse.avg}',f_log)
         writers[0].add_scalar("Loss", losses.avg, epoch)
         writers[0].add_scalar("Loss_CLS", l_cls.avg, epoch)
+        writers[0].add_scalar("Loss_BI", l_bi.avg, epoch)
         writers[0].add_scalar("Loss_MSE", l_mse.avg, epoch)
         writers[0].add_scalar("Accuracy", accs.avg, epoch)
         if epoch % args.epoch_save == 0:
             torch.save({'epoch': epoch, 'state_dict': net.state_dict(),
                         'optimizer': optimizer.state_dict()},
                         os.path.join(args.dir_save, str(epoch) + '.pth'))
-            loss, loss_mse,loss_cls,_,acc = test_cls(args, testloader, net)
-            print(f'Test ({epoch})|acc|{acc}%|loss|{loss}|l_cls|{loss_cls}|l_mse|{loss_mse}')
+            loss, loss_mse,loss_cls,loss_bi,acc = test_cls(args, testloader, net)
+            log(f'Test ({epoch})|acc|{acc}%|loss|{loss}|l_cls|{loss_cls}|l_bi|{loss_bi}|l_mse|{loss_mse}',f_log)
             writers[1].add_scalar("Accuracy", acc, epoch)
             writers[1].add_scalar("Loss", loss, epoch)
             writers[1].add_scalar("Loss_CLS", loss_cls, epoch)
+            writers[1].add_scalar("Loss_BI",  loss_bi,  epoch)
             writers[1].add_scalar("Loss_MSE", loss_mse, epoch)
+    log(f"END Timstamp:{datetime.datetime.now().strftime('%Y:%m:%d %H:%M')}",f_log)
+    f_log.close()
 
 
 def test_cls(args, dataloader, net,
@@ -213,13 +226,15 @@ def test_cls(args, dataloader, net,
             else:
                 Y = skeletons.cuda(args.gpu_id)
             # y: (batch_size, num_clips) x T x ((num_joints x dim_joints) x num_subj)
-            out_label, R = net(Y,T) 
+            out_label, R, B = net(Y,T) 
             out_label = torch.mean(out_label.view(-1, n_clips, args.num_class), 1)
             loss_cls = criterion(out_label, gt_label)
             loss_mse = mseLoss(R, Y)
-            loss = args.lam1*loss_cls + args.lam2*loss_mse
+            loss_bi = L1Loss(torch.zeros_like(B).to(B),B)
+            loss = args.lam1*loss_cls + args.lam2*loss_mse + args.Alpha*loss_bi
 
             accs.update(accuracy(out_label, gt_label)[0].data.item())
+            l_bi.update(loss_bi.data.item())
             l_mse.update(loss_mse.data.item())
             l_cls.update(loss_cls.data.item())
             losses.update(loss.data.item())
@@ -264,9 +279,9 @@ def get_parser():
     parser.add_argument('--mode', default='cls')  # D | cls
     parser.add_argument('--wiCY', default=True, type=str2bool, help='Concatenated Y')
     parser.add_argument('--wiG',  default=False, type=str2bool, help='Use GroupLASSO')
-    parser.add_argument('--wiCC', default=False, type=str2bool, help='Concatenated Coefficients')
-    parser.add_argument('--wiF',  default=False, type=str2bool, help='Freeze DYAN Reconstruction net')
-    parser.add_argument('--wiBI', default=False, type=str2bool, help='Use Binarization Code')
+    parser.add_argument('--wiCC', default=True, type=str2bool, help='Concatenated Coefficients')
+    parser.add_argument('--wiF',  default=True, type=str2bool, help='Freeze DYAN Reconstruction net')
+    parser.add_argument('--wiBI', default=True, type=str2bool, help='Use Binarization Code')
     parser.add_argument('--wiCL', default=False, type=str2bool, help='Use Contrast Learning')
     parser.add_argument('--setup',default='cv')
     # Training
@@ -276,9 +291,11 @@ def get_parser():
     parser.add_argument('--lr', default=1e-3, type=float, help='classifier')
     parser.add_argument('--lr_2', default=1e-3, type=float, help='sparse coding')
 
+    parser.add_argument('--th_gumbel', default=0.51, type=float, help='threshold for Gumbel Module') 
     parser.add_argument('--Alpha', default=0.1, type=float, help='loss_bi')
     parser.add_argument('--lam1', default=2, type=float, help='loss_cls') # 2
-    parser.add_argument('--lam2', default=1, type=float, help='loss_mse') 
+    parser.add_argument('--lam2', default=1, type=float, help='loss_mse')
+    
 
     return parser
 
