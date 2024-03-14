@@ -16,51 +16,6 @@ from utils.utils import dim_out
 from models.gumbel_module import GumbelSigmoid
 from scipy.spatial import distance
 
-class binaryCoding(nn.Module):
-    def __init__(self, num_binary):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(161, 64, kernel_size=(3,3), padding=2),  # same padding
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=(1,1), stride=1),
-            # nn.BatchNorm2d(num_features=64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-
-            nn.Conv2d(64, 32, kernel_size=(3,3), padding=2),
-            nn.ReLU(inplace=True),
-            nn.AvgPool2d(kernel_size=(1,1), stride=1),
-            # nn.BatchNorm2d(num_features=32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-
-            nn.Conv2d(32, 64, kernel_size=(1,1), padding=1),
-            nn.ReLU(inplace=True),
-            nn.AvgPool2d(kernel_size=(1,1), stride=1),
-            # nn.BatchNorm2d(num_features=64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-
-        )
-        self.fc = nn.Sequential(
-            nn.Linear(64 * 7 * 7, 500),
-            # nn.Linear(64*26*8, 500),
-            nn.ReLU(inplace=True),
-
-            nn.Linear(500, num_binary)
-        )
-
-        for m in self.modules():
-            # if m.__class__ == nn.Conv2d or m.__class__ == nn.Linear:
-            #     init.xavier_normal(m.weight.data)
-            #     m.bias.data.fill_(0)
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-
-            elif isinstance(m, nn.Linear):
-                torch.nn.init.xavier_uniform_(m.weight, gain=1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-
-        return x
-
 
 class CoefNet(nn.Module):
     def __init__(self, args, num_jts=25):
@@ -180,7 +135,7 @@ class DYAN_B(nn.Module):
         self.wiBI  = args.wiBI
         self.wiCC = args.wiCC
         
-        self.sparseCoding = DYANEnc(self.Drr, self.Dtheta, args.lam_f, args.gpu_id)
+        self.sparseCoding = DYANEnc(self.Drr, self.Dtheta, args.lam_f, args.wiRW, args.gpu_id)
         if args.wiD != '':
             print(f"Loading Pretrained Model: {args.wiD}...")
             update_dict = self.sparseCoding.state_dict()
@@ -240,6 +195,52 @@ class DYAN_B(nn.Module):
         
         label = self.cls(f_cls)
         return label, R , B
+
+
+class binaryCoding(nn.Module):
+    def __init__(self, num_binary):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(161, 64, kernel_size=(3,3), padding=2),  # same padding
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=(1,1), stride=1),
+            # nn.BatchNorm2d(num_features=64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+
+            nn.Conv2d(64, 32, kernel_size=(3,3), padding=2),
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(kernel_size=(1,1), stride=1),
+            # nn.BatchNorm2d(num_features=32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+
+            nn.Conv2d(32, 64, kernel_size=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(kernel_size=(1,1), stride=1),
+            # nn.BatchNorm2d(num_features=64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(64 * 7 * 7, 500),
+            # nn.Linear(64*26*8, 500),
+            nn.ReLU(inplace=True),
+
+            nn.Linear(500, num_binary)
+        )
+
+        for m in self.modules():
+            # if m.__class__ == nn.Conv2d or m.__class__ == nn.Linear:
+            #     init.xavier_normal(m.weight.data)
+            #     m.bias.data.fill_(0)
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+
+            elif isinstance(m, nn.Linear):
+                torch.nn.init.xavier_uniform_(m.weight, gain=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return x
 
 
 class binarizeSparseCode(nn.Module):

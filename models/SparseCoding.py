@@ -82,19 +82,19 @@ def get_Drr_Dtheta(N):
     return Drr, Dtheta
 
 
-def fista_new(D, Y, lambd, maxIter, gpu_id,
+def fista_new(D, Y, lambd, maxIter,
               thr_dif=1e-5):
     DtD = torch.matmul(torch.t(D),D)
     L = torch.norm(DtD, 2)
     linv = 1/L
     DtY = torch.matmul(torch.t(D),Y)
-    x_old = torch.zeros(DtD.shape[1],DtY.shape[2]).cuda(gpu_id)
+    x_old = torch.zeros(DtD.shape[1],DtY.shape[2]).to(D)
     t = 1
     y_old = x_old
     lambd = lambd*(linv.data.cpu().numpy())
     # print('lambda:', lambd, 'linv:',1/L, 'DtD:',DtD, 'L', L )
     # print('dictionary:', D)
-    A = torch.eye(DtD.shape[1]).cuda(gpu_id) - torch.mul(DtD,linv)
+    A = torch.eye(DtD.shape[1]).to(D) - torch.mul(DtD,linv)
     DtY = torch.mul(DtY,linv)
     Softshrink = nn.Softshrink(lambd)
     for ii in range(maxIter):
@@ -118,29 +118,8 @@ def fista_new(D, Y, lambd, maxIter, gpu_id,
     return x_old
 
 
-class DYANEnc(nn.Module):
-    def __init__(self, Drr=torch.zeros(0), Dtheta=torch.zeros(0),
-                 lam=0.1, gpu_id=0):
-        """
-        Drr:    rho in dictionary
-        Dtheta: theta in dictionary
-        inter:  flag for interaction action recognition
-        lambda: lambda for FISTA
-        gpu_id: GPU ID for CUDA
-        """
-        super(DYANEnc, self).__init__()
-        self.rr = nn.Parameter(Drr)
-        self.theta = nn.Parameter(Dtheta)
-        self.lam = lam
-        self.gpu_id = gpu_id
-    
-    def forward(self,x, T):
-        D = creatRealDictionary(T, self.rr, self.theta, self.gpu_id)
-        C = fista_new(D, x, self.lam, 100, self.gpu_id)
-        R = torch.matmul(D, C)
-        return C, D, R
-
-def fista_reweighted(D, Y, lambd, w, maxIter):
+def fista_reweighted(D, Y, lambd, maxIter, w,
+                     thr_dif=1e-5):
     '''D: T x 161, Y: N x T x 50, w: N x 161 x 50'''
     if len(D.shape) < 3:
         DtD = torch.matmul(torch.t(D), D)
@@ -180,7 +159,7 @@ def fista_reweighted(D, Y, lambd, w, maxIter):
 
         tt = (t_old-1)/t_new
         y_new = x_new + torch.mul(tt, (x_new-x_old))  # y_new = x_new + ((t_old-1)/t_new) *(x_new-x_old)
-        if torch.norm((x_old - x_new), 2) / x_old.shape[1] < 1e-5:
+        if torch.norm((x_old - x_new), 2) / x_old.shape[1] < thr_dif:
             x_old = x_new
             break
 
@@ -189,6 +168,52 @@ def fista_reweighted(D, Y, lambd, w, maxIter):
         y_old = y_new
 
     return x_old
+
+
+class DYANEnc(nn.Module):
+    def __init__(self, Drr=torch.zeros(0), Dtheta=torch.zeros(0),
+                 lam=0.1, wiRW=False, gpu_id=0):
+        """
+        Drr:    rho in dictionary
+        Dtheta: theta in dictionary
+        inter:  flag for interaction action recognition
+        lambda: lambda for FISTA
+        gpu_id: GPU ID for CUDA
+        """
+        super(DYANEnc, self).__init__()
+        self.rr = nn.Parameter(Drr)
+        self.theta = nn.Parameter(Dtheta)
+        self.lam = lam
+        self.wiRW = wiRW
+        self.gpu_id = gpu_id
+    
+    def forward(self, x, T):
+        D = creatRealDictionary(T, self.rr, self.theta, self.gpu_id)
+        if not self.wiRW:
+            C = fista_new(D, x, self.lam, 100)
+        else:
+            i = 0
+            w_init = torch.ones(x.shape[0], D.shape[1], x.shape[2])
+            while i < 2:
+                temp = fista_reweighted(D, x, self.lam, 100, w_init)
+                # vector:
+                w = 1 / (torch.abs(temp) + 1e-2)
+                w_init = (w/torch.norm(w)) * D.shape[1]
+
+                # matrix:
+                # w = torch.pinverse((temp + 1e-2*torch.ones(temp.shape).cuda(self.gpu_id)))
+                # w_init = (w/torch.norm(w,'fro')) * (temp.shape[1]*temp.shape[-1])
+                # pdb.set_trace()
+
+                final = temp
+                del temp
+                i += 1
+
+            C = final
+            C = C.cuda(self.gpu_id)
+        R = torch.matmul(D, C)
+        return C, D, R
+
 
 class DYANrhEnc(nn.Module):
     def __init__(self, Drr=torch.zeros(0),

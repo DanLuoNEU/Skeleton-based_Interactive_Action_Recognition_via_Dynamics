@@ -36,10 +36,10 @@ def train_D(args, writers,
     if args.wiG:
         # TODO: should be Group DYAN here
         net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f,
-                      gpu_id=args.gpu_id).cuda(args.gpu_id)
+                      wiRW=args.wiRW, gpu_id=args.gpu_id).cuda(args.gpu_id)
     else:
         net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f,
-                      gpu_id=args.gpu_id).cuda(args.gpu_id)
+                      wiRW=args.wiRW, gpu_id=args.gpu_id).cuda(args.gpu_id)
     # Training assistants
     optimizer = torch.optim.SGD(net.parameters(), lr=1e-4, weight_decay=0.001, momentum=0.9)
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)
@@ -91,7 +91,6 @@ def train_D(args, writers,
 
 
 def test_D(args, dataloader, net,
-            withMask=False, gumbel_thresh=False,
             mseLoss=torch.nn.MSELoss()):
     losses, l_mse, l_cls, l_bi = AverageMeter(),AverageMeter(),AverageMeter(),AverageMeter()
     with torch.no_grad():
@@ -143,6 +142,7 @@ def train_cls(args, writers,
     args.dir_save = os.path.join(args.work_dir, args.name_exp,datetime.datetime.now().strftime("%Y%m%d_%H%M"))
     os.makedirs(args.dir_save, exist_ok=True)
     f_log = open(os.path.join(args.dir_save,'log.txt'),'w')
+    f_log.writelines(str(args)+'\n')
 
     net.train()
     for epoch in range(1, args.Epoch+1):
@@ -274,7 +274,9 @@ def get_parser():
     parser.add_argument('--N', default=80*2, type=int, help='number of poles')
     parser.add_argument('--T', default=36, type=int, help='input clip length')
     parser.add_argument('--lam_f', default=0.1, type=float)
-    parser.add_argument('--wiD',default='')# /data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_D_wiCY_woG_woCC_woBI_woCL_T36_f0.1/20240224_1801/5.pth
+    parser.add_argument('--wiRW', default=True, type=str2bool, help='Reweighted DYAN')
+    # parser.add_argument('--wiD',default='/data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_D_wiCY_woG_woCC_woBI_woCL_T36_f0.1/20240224_1801/5.pth') # woRW
+    parser.add_argument('--wiD',default='/data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_D_wiCY_woG_wiRW_wiCC_wiF_wiBI_woCL_T36_f0.1_2_1_1_0.1/20240313_1559/5.pth') # wiRW
     # Architecture
     parser.add_argument('--mode', default='cls')  # D | cls
     parser.add_argument('--wiCY', default=True, type=str2bool, help='Concatenated Y')
@@ -291,8 +293,8 @@ def get_parser():
     parser.add_argument('--lr', default=1e-3, type=float, help='classifier')
     parser.add_argument('--lr_2', default=1e-3, type=float, help='sparse coding')
 
-    parser.add_argument('--th_gumbel', default=0.51, type=float, help='threshold for Gumbel Module') 
-    parser.add_argument('--Alpha', default=0.1, type=float, help='loss_bi')
+    parser.add_argument('--th_gumbel', default=0.2, type=float, help='threshold for Gumbel Module') 
+    parser.add_argument('--Alpha', default=1, type=float, help='loss_bi')
     parser.add_argument('--lam1', default=2, type=float, help='loss_cls') # 2
     parser.add_argument('--lam2', default=1, type=float, help='loss_mse')
     

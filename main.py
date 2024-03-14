@@ -27,12 +27,12 @@ def main(args):
                             num_workers=args.num_workers, pin_memory=True)
     
     # Log
-    str_net_1 = f"{'wiCY' if args.wiCY else 'woCY'}_{'wiG' if args.wiG  else 'woG'}_{'wiCC' if args.wiCC else 'woCC'}_"
+    str_net_1 = f"{'wiCY' if args.wiCY else 'woCY'}_{'wiG' if args.wiG  else 'woG'}_{'wiRW' if args.wiCC else 'woRW'}_{'wiCC' if args.wiCC else 'woCC'}_"
     str_net_2 = f"{'wiF' if args.wiF else 'woF'}_{'wiBI' if args.wiBI else 'woBI'}_{'wiCL' if args.wiCL else 'woCL'}"
     
     
     args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}{'' if args.wiD!='' else '_woD'}_{str_net_1+str_net_2}"
-    args.name_exp = args.name_exp + f"_T{args.T}_f{args.lam_f}_{args.lam1}_{args.lam2}_{args.Alpha}"
+    args.name_exp = args.name_exp + f"_T{args.T}_f{args.lam_f}_{args.lam1}_{args.lam2}_{args.Alpha}_{args.th_gumbel}"
     print(args.name_exp)
     print('START Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M'))
     writers=[SummaryWriter(log_dir=f'runs/{args.name_exp}_train'),
@@ -44,7 +44,6 @@ def main(args):
     
     print(args.name_exp)
     print('END Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M')) 
-
 
 
 if __name__ == '__main__':
