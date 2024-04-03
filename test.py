@@ -1,77 +1,81 @@
-from dataset.NTU_Inter import *
-from models.networks import *
+import os
+import datetime
 
-def test(dataloader, net, gpu_id, 
-            sampling, mode,
-            withMask=False, gumbel_thresh=False):
-    acc = 0
-    losses, l_mse, l_cls, l_bi = AverageMeter(),AverageMeter(),AverageMeter(),AverageMeter()
-    with torch.no_grad():
-        for i, (data,label,index) in enumerate(dataloader):
-            skeletons = data.cuda(gpu_id)
-            gt_label = label.cuda(gpu_id)
-            if mode == 'dy':
-                # skeletons: batch_size, num_clips, dim_joints, T, num_joints, num_subj
-                #          ->batch_size, num_subj, num_clips, T, num_joints, dim_joints
-                skeletons = skeletons.transpose(0,5,1,3,4,2)
-                _,_,_,T,J,D = skeletons.shape
-                skeletons = skeletons.reshape(-1,T,J,D)
-                N,T,_,_ = skeletons.shape
-                skeletons = skeletons.reshape(N,T,-1)
-                loss_mse = torch.zeros(1).cuda(gpu_id)
-                _,_,R = net(skeletons,T)
-                loss_mse += mseLoss(R, skeletons)
-                loss = loss_mse
-            l_mse.update(loss_mse.data.item())
-            losses.update(loss.data.item())
+import torch
+from torch.utils.data import DataLoader
+
+from dataset.NTU_Inter import NTU
+from dataset.NTU120_Inter import NTU120
+from models.SparseCoding import get_Drr_Dtheta, DYANEnc
+from utils.utils import accuracy, sparsity
+from train import init_seed, log, get_parser, test_D, test_cls
+
+def main(args):
+    # Dataset
+    if args.dataset=='NTU':
+        trainSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
+                            split='train')
+        testSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
+                            split='test')
+    elif args.dataset=='NTU120':
+        trainSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
+                            split='train')
+        testSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
+                            split='test')
+    
+    trainloader = DataLoader(trainSet, batch_size=args.bs, shuffle=False,
+                             num_workers=args.num_workers, pin_memory=True)
+    testloader = DataLoader(testSet, batch_size=args.bs, shuffle=False, 
+                            num_workers=args.num_workers, pin_memory=True)
+    
+    # # Log
+    # str_net_1 = f"{'wiCY' if args.wiCY else 'woCY'}_{'wiG' if args.wiG  else 'woG'}_{'wiRW' if args.wiRW else 'woRW'}_{'wiCC' if args.wiCC else 'woCC'}_"
+    # str_net_2 = f"{'wiF' if args.wiF else 'woF'}_{'wiBI' if args.wiBI else 'woBI'}_{'wiCL' if args.wiCL else 'woCL'}"
+    
+    
+    # args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}{'' if args.wiD!='' else '_woD'}_{str_net_1+str_net_2}"
+    # args.name_exp = args.name_exp + f"_T{args.T}_f{args.lam_f:.0e}_d{args.th_d:.0e}_{args.lam1}_{args.lam2}_{args.Alpha}_{args.th_gumbel:.3f}"
+    # print(args.name_exp)
+    print('START Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M'))
+    if args.mode == 'D':
+        # Initialize DYAN Dictionary
+        Drr, Dtheta = get_Drr_Dtheta(args.N)
+        # Select Network
+        if args.wiG:
+            # TODO: should be Group DYAN here
+            net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, thr_dif=args.th_d,
+                          wiRW=args.wiRW, gpu_id=args.gpu_id).cuda(args.gpu_id)
+        else:
+            net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, thr_dif=args.th_d,
+                          wiRW=args.wiRW, gpu_id=args.gpu_id).cuda(args.gpu_id)
+        # Directory to save the test log
         
-    return losses.avg, l_mse.avg, l_cls.avg, l_bi.avg, acc
+        f_log = open(os.path.join(os.path.dirname(os.path.abspath(args.wiD)),'test.txt'),'w')
+        
+        update_dict = net.state_dict()
+        model_pret = torch.load(args.wiD, map_location=args.map_loc)
+        state_dict = model_pret['state_dict']
+        pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
+        update_dict.update(pret_dict)
+        net.load_state_dict(update_dict)
+        # Load pretrained model
+        print(f"Pretrained Model Loaded: {args.wiD}")
 
-# if __name__ == "__main__":
-#     gpu_id = 2
-#     bz = 8
-#     num_workers = 4
-#     'initialized params'
-#     N = 80 * 2
-#     P, Pall = gridRing(N)
-#     Drr = abs(P)
-#     Drr = torch.from_numpy(Drr).float()
-#     Dtheta = np.angle(P)
-#     Dtheta = torch.from_numpy(Dtheta).float()
-
-#     mode = 'dy+bi+cl'
-#     T = 36
-#     dataset = 'NUCLA'
-#     sampling = 'Multi'
-#     withMask = False
-#     gumbel_thresh = 0.505  #0.505
-#     setup = 'setup1'
-#     path_list = './data/CV/' + setup + '/'
-#     # testSet = NUCLA_CrossView(root_list=path_list, dataType='2D', sampling=sampling, phase='test', cam='2,1', T=T,
-#     #                           maskType='score', setup=setup)
-#     # testloader = DataLoader(testSet, batch_size=bz, shuffle=True, num_workers=num_workers)
-
-#     if mode == 'dy+bi+cl':
-
-#         # net = Fullclassification(num_class=10, Npole=(N + 1), Drr=Drr, Dtheta=Dtheta, dim=2, dataType='2D',
-#         #                          Inference=True,
-#         #                          gpu_id=gpu_id, fistaLam=0.1, group=False, group_reg=0.01, useCL=False).cuda(gpu_id)
-#         net = contrastiveNet(dim_embed=128, Npole=N + 1, Drr=Drr, Dtheta=Dtheta, Inference=True, gpu_id=gpu_id, dim=2,
-#                                dataType='2D', fistaLam=0.1, fineTune=True, useCL=False).cuda(gpu_id)
-#     else:
-#         kinetics_pretrain = './pretrained/i3d_kinetics.pth'
-#         net = twoStreamClassification(num_class=10, Npole=(N + 1), num_binary=(N + 1), Drr=Drr, Dtheta=Dtheta, dim=2,
-#                                   gpu_id=gpu_id, inference=True, fistaLam=0.1, dataType='2D',
-#                                   kinetics_pretrain=kinetics_pretrain).cuda(gpu_id)
+        loss, loss_mse, sp_0, sp_th = test_D(args, trainloader, net) 
+        log(f'Train| loss |{loss}| l_mse |{loss_mse}| Sp_0 |{sp_0}| Sp_th(<0.05) |{sp_th}', f_log)
+        loss, loss_mse, sp_0, sp_th = test_D(args, testloader, net) 
+        log(f'Test| loss |{loss}| l_mse |{loss_mse}| Sp_0 |{sp_0}| Sp_th(<0.05) |{sp_th}',f_log)
+    elif args.mode == 'cls':
+        pass
+    
+    # print(args.name_exp)
+    print('END Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M')) 
 
 
-#     ckpt = '/home/yuexi/Documents/ModelFile/crossView_NUCLA/' + sampling + '/' + mode + '/T36_contrastive_fineTune_all/' + '60.pth'
-#     # ckpt = './pretrained/N-UCLA/' + setup + '/' + sampling + '/pretrainedRHdyan_BI_v2.pth'
-#     stateDict = torch.load(ckpt, map_location="cuda:" + str(gpu_id))['state_dict']
-#     # net.load_state_dict(stateDict)
-#     net = load_pretrainedModel_endtoEnd(stateDict,net)
-#     # pdb.set_trace()
-#     Acc = testing(testloader,net, gpu_id, sampling, mode, withMask,gumbel_thresh)
+if __name__ == '__main__':
+    parser = get_parser()
+    args=parser.parse_args()
+    args.map_loc = "cuda:"+str(args.gpu_id)
 
-#     print('Acc:%.4f' % Acc)
-#     print('done')
+    init_seed(args.seed)
+    main(args)

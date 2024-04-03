@@ -135,7 +135,9 @@ class DYAN_B(nn.Module):
         self.wiBI  = args.wiBI
         self.wiCC = args.wiCC
         
-        self.sparseCoding = DYANEnc(self.Drr, self.Dtheta, args.lam_f, args.wiRW, args.gpu_id)
+        self.sparseCoding = DYANEnc(self.Drr, self.Dtheta,
+                                    args.lam_f, args.th_d,
+                                    args.wiRW, args.gpu_id)
         if args.wiD != '':
             print(f"Loading Pretrained Model: {args.wiD}...")
             update_dict = self.sparseCoding.state_dict()
@@ -186,7 +188,7 @@ class DYAN_B(nn.Module):
             C = C * B
             R = torch.matmul(D, C)
         else:
-            B = torch.zeros_like(C.shape).to(C)
+            B = torch.zeros_like(C).to(C)
         # Concatenate Coefficients
         if self.wiCC:
             f_cls = self.forward_wiCC(C)

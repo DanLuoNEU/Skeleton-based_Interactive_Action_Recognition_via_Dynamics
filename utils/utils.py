@@ -18,6 +18,9 @@ from torch.autograd import Variable
 
 from models.SparseCoding import gridRing
 
+def sparsity(m, thr_zero=0.05):
+    return torch.sum((m==0))/m.numel(), (torch.abs(m)<thr_zero).sum()/m.numel()
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):

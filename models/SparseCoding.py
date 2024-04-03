@@ -20,6 +20,7 @@ from torch.autograd import Variable
 
 from utils import *
 from dataset.NTU_Inter import NTU
+from models.gumbel_module import GumbelSigmoid
 # from modelZoo.actHeat import imageFeatureExtractor
 
 def creatRealDictionary(T, rr, theta, gpu_id):
@@ -86,35 +87,34 @@ def fista_new(D, Y, lambd, maxIter,
               thr_dif=1e-5):
     DtD = torch.matmul(torch.t(D),D)
     L = torch.norm(DtD, 2)
-    linv = 1/L
+    linv = 1 / L
     DtY = torch.matmul(torch.t(D),Y)
     x_old = torch.zeros(DtD.shape[1],DtY.shape[2]).to(D)
     t = 1
     y_old = x_old
     lambd = lambd*(linv.data.cpu().numpy())
+    ## DEBUG
     # print('lambda:', lambd, 'linv:',1/L, 'DtD:',DtD, 'L', L )
     # print('dictionary:', D)
     A = torch.eye(DtD.shape[1]).to(D) - torch.mul(DtD,linv)
-    DtY = torch.mul(DtY,linv)
+    DtY = torch.mul(DtY, linv)
     Softshrink = nn.Softshrink(lambd)
     for ii in range(maxIter):
         # print('iter:',ii, lambd)
         Ay = torch.matmul(A,y_old)
-        del y_old
+        # del y_old
         x_new = Softshrink((Ay + DtY))
-
         t_new = (1 + np.sqrt(1 + 4 * t ** 2)) / 2.
         tt = (t-1)/t_new
-        y_old = torch.mul( x_new,(1 + tt))
-        y_old -= torch.mul(x_old , tt)
+        y_old  = torch.mul(x_new,(1 + tt)) - torch.mul(x_old, tt)
         # pdb.set_trace()
         if torch.norm((x_old - x_new), 2)/x_old.shape[1] < thr_dif:
             x_old = x_new
-            # print('Iter:', ii)
+            # del x_new
             break
         t = t_new
         x_old = x_new
-        del x_new
+        # del x_new
     return x_old
 
 
@@ -172,7 +172,9 @@ def fista_reweighted(D, Y, lambd, maxIter, w,
 
 class DYANEnc(nn.Module):
     def __init__(self, Drr=torch.zeros(0), Dtheta=torch.zeros(0),
-                 lam=0.1, wiRW=False, gpu_id=0):
+                 lam=0.1, th_dif=1e-5, wiRW=False,
+                 wiBI=False,th_g = 0.51,
+                 gpu_id=0):
         """
         Drr:    rho in dictionary
         Dtheta: theta in dictionary
@@ -184,18 +186,25 @@ class DYANEnc(nn.Module):
         self.rr = nn.Parameter(Drr)
         self.theta = nn.Parameter(Dtheta)
         self.lam = lam
+        self.th_dif = th_dif
         self.wiRW = wiRW
+        self.wiBI = wiBI
         self.gpu_id = gpu_id
+        if wiBI:
+            self.th_gumbel = th_g
+            self.BinaryCoding = GumbelSigmoid()
     
     def forward(self, x, T):
         D = creatRealDictionary(T, self.rr, self.theta, self.gpu_id)
+        # Original FISTA
         if not self.wiRW:
-            C = fista_new(D, x, self.lam, 100)
+            C = fista_new(D, x, self.lam, 100, self.th_dif)
+        # With Reweighted Heuristic Sparsity optimization
         else:
             i = 0
-            w_init = torch.ones(x.shape[0], D.shape[1], x.shape[2])
-            while i < 2:
-                temp = fista_reweighted(D, x, self.lam, 100, w_init)
+            w_init = torch.ones(x.shape[0], D.shape[1], x.shape[2]) # bs x N x T
+            while i < 2: # 2
+                temp = fista_reweighted(D, x, self.lam, 100, w_init, self.th_dif)
                 # vector:
                 w = 1 / (torch.abs(temp) + 1e-2)
                 w_init = (w/torch.norm(w)) * D.shape[1]
@@ -212,7 +221,16 @@ class DYANEnc(nn.Module):
             C = final
             C = C.cuda(self.gpu_id)
         R = torch.matmul(D, C)
-        return C, D, R
+        # With Binarization Module
+        if self.wiBI:
+            B = self.BinaryCoding(C**2, self.th_gumbel, force_hard=True,
+                                  temperature=0.1, inference=True)
+            C = C * B
+            R = torch.matmul(D, C)
+        else:
+            B = torch.zeros_like(C).to(C)
+        
+        return C, D, R, B
 
 
 class DYANrhEnc(nn.Module):
@@ -266,6 +284,42 @@ class DYANrhEnc(nn.Module):
 
         reconst = torch.matmul(D, sparseCode)
         return sparseCode, D, reconst
+
+
+# def fista_new(D, Y, lambd, maxIter,
+#               thr_dif=1e-5):
+#     DtD = torch.matmul(torch.t(D),D)
+#     L = torch.norm(DtD, 2)
+#     linv = 1/L
+#     DtY = torch.matmul(torch.t(D),Y)
+#     x_old = torch.zeros(DtD.shape[1],DtY.shape[2]).to(D)
+#     t = 1
+#     y_old = x_old
+#     lambd = lambd*(linv.data.cpu().numpy())
+#     # print('lambda:', lambd, 'linv:',1/L, 'DtD:',DtD, 'L', L )
+#     # print('dictionary:', D)
+#     A = torch.eye(DtD.shape[1]).to(D) - torch.mul(DtD,linv)
+#     DtY = torch.mul(DtY,linv)
+#     Softshrink = nn.Softshrink(lambd)
+#     for ii in range(maxIter):
+#         # print('iter:',ii, lambd)
+#         Ay = torch.matmul(A,y_old)
+#         del y_old
+#         x_new = Softshrink((Ay + DtY))
+
+#         t_new = (1 + np.sqrt(1 + 4 * t ** 2)) / 2.
+#         tt = (t-1)/t_new
+#         y_old = torch.mul( x_new,(1 + tt))
+#         y_old -= torch.mul(x_old , tt)
+#         # pdb.set_trace()
+#         if torch.norm((x_old - x_new), 2)/x_old.shape[1] < thr_dif:
+#             x_old = x_new
+#             # print('Iter:', ii)
+#             break
+#         t = t_new
+#         x_old = x_new
+#         del x_new
+#     return x_old
 
 
 def fista_reweighted_mask(D, Y, lambd, w, maxIter):
