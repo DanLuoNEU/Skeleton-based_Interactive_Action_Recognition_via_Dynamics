@@ -59,6 +59,9 @@ def get_parser():
     parser.add_argument('--lam_f', default=1e-1, type=float)
     parser.add_argument('--th_d', default=1e-5, type=float)
     parser.add_argument('--wiRW', default=False, type=str2bool, help='Reweighted DYAN')
+    parser.add_argument('--wiBI', default=False, type=str2bool, help='Use Binarization Code')
+    parser.add_argument('--th_g', default=0.4, type=float, help='threshold for Gumbel Module') 
+    parser.add_argument('--te_g', default=0.01, type=float, help='temparature for Gumbel Module') 
     parser.add_argument('--wiD',default='')
     # parser.add_argument('--wiD',default='/data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_D_wiCY_woG_woCC_woBI_woCL_T36_f0.1/20240224_1801/5.pth') # woRW
     # parser.add_argument('--wiD',default='/data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_D_wiCY_woG_wiRW_wiCC_wiF_wiBI_woCL_T36_f0.1_2_1_1_0.1/20240313_1559/5.pth') # wiRW
@@ -68,18 +71,16 @@ def get_parser():
     parser.add_argument('--wiG',  default=False, type=str2bool, help='Use GroupLASSO')
     parser.add_argument('--wiCC', default=True, type=str2bool, help='Concatenated Coefficients')
     parser.add_argument('--wiF',  default=True, type=str2bool, help='Freeze DYAN Reconstruction net')
-    parser.add_argument('--wiBI', default=False, type=str2bool, help='Use Binarization Code')
     parser.add_argument('--wiCL', default=False, type=str2bool, help='Use Contrast Learning')
     parser.add_argument('--setup',default='cv')
     # Training
     parser.add_argument('--Epoch', default=100, type=int)
-    parser.add_argument('--epoch_D', default=10, type=int) # before this epoch only train Reconstruction Part
+    parser.add_argument('--epoch_D', default=20, type=int) # before this epoch only train Reconstruction Part
     parser.add_argument('--epoch_save', default=5, type=int)
     parser.add_argument('--save_m', default=False, type=str2bool)
-    parser.add_argument('--lr', default=1e-3, type=float, help='classifier')
-    parser.add_argument('--lr_2', default=1e-3, type=float, help='sparse coding')
+    parser.add_argument('--lr', default=1e-4, type=float, help='classifier')
+    parser.add_argument('--lr_2', default=1e-4, type=float, help='sparse coding')
 
-    parser.add_argument('--th_gumbel', default=0.4, type=float, help='threshold for Gumbel Module') 
     parser.add_argument('--Alpha', default=1, type=float, help='loss_bi')
     parser.add_argument('--lam1', default=2, type=float, help='loss_cls') # 2
     parser.add_argument('--lam2', default=1, type=float, help='loss_mse')
@@ -100,17 +101,13 @@ def train_D(args, writers,
     # Select Network
     if args.wiG:
         # TODO: should be Group DYAN here
-        net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, th_dif=args.th_d,
-                      wiRW=args.wiRW, wiBI=args.wiBI, th_g=args.th_gumbel,
-                      gpu_id=args.gpu_id).cuda(args.gpu_id)
+        net = DYANEnc(Drr=Drr, Dtheta=Dtheta, args=args).cuda(args.gpu_id)
     else:
-        net = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, th_dif=args.th_d,
-                      wiRW=args.wiRW, wiBI=args.wiBI, th_g=args.th_gumbel,
-                      gpu_id=args.gpu_id).cuda(args.gpu_id)
+        net = DYANEnc(Drr=Drr, Dtheta=Dtheta, args=args).cuda(args.gpu_id)
     mseLoss=torch.nn.MSELoss()
     L1Loss=torch.nn.SmoothL1Loss()
     # Training assistants
-    optimizer = torch.optim.SGD(net.parameters(), lr=1e-4, weight_decay=0.001, momentum=0.9)
+    optimizer = torch.optim.SGD(net.parameters(), lr=args.lr, weight_decay=0.001, momentum=0.9)
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)
 
 
@@ -119,13 +116,13 @@ def train_D(args, writers,
                                  datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(args.dir_save, exist_ok=True)
     f_log = open(os.path.join(args.dir_save,'log.txt'),'w')
-    f_log.writelines(str(args)+'\n')
+    f_log.writelines([f"{arg}: {getattr(args, arg) or ''}\n" for arg in vars(args)])
 
     if args.save_m:
         torch.save({'state_dict': net.state_dict()},
                     os.path.join(args.dir_save, '0.pth'))
     loss, loss_mse, loss_bi, sp_0, sp_th = test_D(args, testloader, net)
-    log(f'Test ({0})| loss |{loss}| l_mse |{loss_mse}| Sp_0 |{sp_0}| Sp_th |{sp_th}',f_log)
+    log(f'Test ({0})| loss |{loss}| l_mse |{loss_mse}| l_bi |{loss_bi}| Sp_0 |{sp_0}| Sp_th |{sp_th}',f_log)
     writers[1].add_scalar("Loss",       loss,     0)
     writers[1].add_scalar("Loss_MSE",   loss_mse, 0)
     writers[1].add_scalar("Loss_BI",    loss_bi,  0)
@@ -156,6 +153,8 @@ def train_D(args, writers,
             loss_bi = L1Loss(torch.zeros_like(B).to(B),B)
             
             loss = args.lam2*loss_mse + args.Alpha*loss_bi
+            # C.register_hook(lambda grad: print(grad))
+            # B.register_hook(lambda grad: print(grad))
             loss.backward()
             optimizer.step()
 
@@ -227,7 +226,7 @@ def test_D(args, dataloader, net):
             Sp_0.update(sp_0.data.item())
             Sp_th.update(sp_th.data.item())
 
-    return losses.avg, l_mse.avg, l_bi, Sp_0.avg, Sp_th.avg
+    return losses.avg, l_mse.avg, l_bi.avg, Sp_0.avg, Sp_th.avg
 
 
 def train_cls(args, writers,
@@ -247,7 +246,7 @@ def train_cls(args, writers,
     if args.wiF:
         for p in net.sparseCoding.parameters():
             p.requires_grad = False
-        optimizer = torch.optim.SGD(filter(lambda p:p.requires_grad, net.parameters()), lr=1e-4, weight_decay=0.001, momentum=0.9)
+        optimizer = torch.optim.SGD(filter(lambda p:p.requires_grad, net.parameters()), lr=args.lr, weight_decay=0.001, momentum=0.9)
     else:
         optimizer = torch.optim.SGD(net.parameters(), lr=1e-4, weight_decay=0.001, momentum=0.9)
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)

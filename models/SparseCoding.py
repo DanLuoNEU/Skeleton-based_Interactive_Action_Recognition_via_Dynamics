@@ -101,7 +101,7 @@ def fista_new(D, Y, lambd, maxIter,
     Softshrink = nn.Softshrink(lambd)
     for ii in range(maxIter):
         # print('iter:',ii, lambd)
-        Ay = torch.matmul(A,y_old)
+        Ay = torch.matmul(A, y_old)
         # del y_old
         x_new = Softshrink((Ay + DtY))
         t_new = (1 + np.sqrt(1 + 4 * t ** 2)) / 2.
@@ -127,28 +127,19 @@ def fista_reweighted(D, Y, lambd, maxIter, w,
     else:
         DtD = torch.matmul(D.permute(0, 2, 1), D)
         DtY = torch.matmul(D.permute(0, 2, 1), Y)
-    # eig, v = torch.eig(DtD, eigenvectors=True)
-    # eig, v = torch.linalg.eig(DtD)
-    # L = torch.max(eig)
     L = torch.norm(DtD, 2)
-
-    # eigs = torch.abs(torch.linalg.eigvals(DtD))
-    # L = torch.max(eigs, dim=1).values
-
     Linv = 1/L
-    weightedLambd = (w*lambd) * Linv.data.item()
-    x_old = torch.zeros(DtD.shape[1], DtY.shape[2]).to(D.device)
-    # x_old = x_init
-    y_old = x_old
-    A = torch.eye(DtD.shape[1]).to(D.device) - torch.mul(DtD,Linv)
+
+    x_old = torch.zeros(DtD.shape[1], DtY.shape[2]).to(D)
     t_old = 1
+    y_old = x_old
+    A = torch.eye(DtD.shape[1]).to(D) - torch.mul(DtD,Linv)
+    # SoftShrink constant
+    weightedLambd = (w*lambd) * Linv.data.item()
+    const_xminus = torch.mul(DtY, Linv) - weightedLambd.to(D)
+    const_xplus = torch.mul(DtY, Linv) + weightedLambd.to(D)
 
-    const_xminus = torch.mul(DtY, Linv) - weightedLambd.to(D.device)
-    const_xplus = torch.mul(DtY, Linv) + weightedLambd.to(D.device)
-
-    iter = 0
-    while iter < maxIter:
-        iter +=1
+    for ii in range(maxIter):
         Ay = torch.matmul(A, y_old)
         x_newminus = Ay + const_xminus
         x_newplus = Ay + const_xplus
@@ -156,8 +147,8 @@ def fista_reweighted(D, Y, lambd, maxIter, w,
                 torch.min(torch.zeros_like(x_newplus), x_newplus)
 
         t_new = (1 + np.sqrt(1 + 4 * t_old ** 2)) / 2.
-
         tt = (t_old-1)/t_new
+
         y_new = x_new + torch.mul(tt, (x_new-x_old))  # y_new = x_new + ((t_old-1)/t_new) *(x_new-x_old)
         if torch.norm((x_old - x_new), 2) / x_old.shape[1] < thr_dif:
             x_old = x_new
@@ -171,10 +162,9 @@ def fista_reweighted(D, Y, lambd, maxIter, w,
 
 
 class DYANEnc(nn.Module):
-    def __init__(self, Drr=torch.zeros(0), Dtheta=torch.zeros(0),
-                 lam=0.1, th_dif=1e-5, wiRW=False,
-                 wiBI=False,th_g = 0.51,
-                 gpu_id=0):
+    def __init__(self, args,
+                 Drr=torch.zeros(0),
+                 Dtheta=torch.zeros(0)):
         """
         Drr:    rho in dictionary
         Dtheta: theta in dictionary
@@ -185,13 +175,22 @@ class DYANEnc(nn.Module):
         super(DYANEnc, self).__init__()
         self.rr = nn.Parameter(Drr)
         self.theta = nn.Parameter(Dtheta)
-        self.lam = lam
-        self.th_dif = th_dif
-        self.wiRW = wiRW
-        self.wiBI = wiBI
-        self.gpu_id = gpu_id
-        if wiBI:
-            self.th_gumbel = th_g
+        self.lam = args.lam_f
+        self.th_dif = args.th_d
+        self.wiRW = args.wiRW
+        self.wiBI = args.wiBI
+        self.gpu_id = args.gpu_id
+        # Loading pretrained model
+        if args.wiD:
+            print(f"Loading Pretrained Model: {args.wiD}...")
+            update_dict = self.state_dict()
+            state_dict = torch.load(args.wiD, map_location=args.map_loc)['state_dict']
+            pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
+            update_dict.update(pret_dict)
+            self.load_state_dict(update_dict)
+        if args.wiBI:
+            self.th_g = args.th_g
+            self.te_g = args.te_g
             self.BinaryCoding = GumbelSigmoid()
     
     def forward(self, x, T):
@@ -202,8 +201,8 @@ class DYANEnc(nn.Module):
         # With Reweighted Heuristic Sparsity optimization
         else:
             i = 0
-            w_init = torch.ones(x.shape[0], D.shape[1], x.shape[2]) # bs x N x T
-            while i < 2: # 2
+            w_init = torch.ones(x.shape[0], D.shape[1], x.shape[2]) # bs x N x dim_data
+            while i < 2:
                 temp = fista_reweighted(D, x, self.lam, 100, w_init, self.th_dif)
                 # vector:
                 w = 1 / (torch.abs(temp) + 1e-2)
@@ -220,17 +219,19 @@ class DYANEnc(nn.Module):
 
             C = final
             C = C.cuda(self.gpu_id)
-        R = torch.matmul(D, C)
         # With Binarization Module
         if self.wiBI:
-            B = self.BinaryCoding(C**2, self.th_gumbel, force_hard=True,
-                                  temperature=0.1, inference=True)
-            C = C * B
-            R = torch.matmul(D, C)
+            B = self.BinaryCoding(C**2, self.th_g, force_hard=True,
+                                  temperature=self.te_g, inference=True)
+            C_b = C * B
+            R_b = torch.matmul(D, C_b)
+
+            return C_b, D, R_b, B
         else:
             B = torch.zeros_like(C).to(C)
-        
-        return C, D, R, B
+            R = torch.matmul(D, C)
+
+            return C, D, R, B
 
 
 class DYANrhEnc(nn.Module):

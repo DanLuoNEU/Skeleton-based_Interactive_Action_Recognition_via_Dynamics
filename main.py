@@ -31,11 +31,14 @@ def main(args):
     str_net_2 = f"{'wiF' if args.wiF else 'woF'}_{'wiBI' if args.wiBI else 'woBI'}_{'wiCL' if args.wiCL else 'woCL'}"
     
     
-    args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}{'' if args.wiD!='' else '_woD'}_{str_net_1+str_net_2}"
-    args.name_exp += f"_T{args.T}_f{args.lam_f:.1e}_d{args.th_d:.0e}_{args.lam1}_{args.lam2}_{args.Alpha}_{args.th_gumbel:.3f}"
-    args.name_exp += "" if args.cus_n=='' else f"_{args.cus_n}"
+    args.name_exp = f"{args.dataset}_{args.setup}_{args.mode}_{str_net_1+str_net_2}"
+    args.name_exp += f"_T{args.T}_f{args.lam_f:.1e}_d{args.th_d:.1e}_mse{args.lam2}"
+    if args.wiBI:        args.name_exp += f"_bi{args.Alpha}_th{args.th_g:.1e}_te{args.te_g:.1e}"
+    if args.mode=="cls": args.name_exp += f"_cls{args.lam1}"
+    if args.wiD=='':     args.name_exp += '_woD'
+    if args.cus_n!='':   args.name_exp += f"_{args.cus_n}"
     print(args.name_exp)
-    print('START Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M'))
+    print('START Timstamp:',datetime.datetime.now().strftime('%Y/%m/%d %H:%M'))
     writers=[SummaryWriter(log_dir=f'runs/{args.name_exp}_train'),
              SummaryWriter(log_dir=f'runs/{args.name_exp}_test')]
     if args.mode == 'D':
@@ -44,7 +47,7 @@ def main(args):
         train_cls(args, writers, trainloader, testloader)
     
     print(args.name_exp)
-    print('END Timstamp:',datetime.datetime.now().strftime('%Y:%m:%d %H:%M')) 
+    print('END Timstamp:',datetime.datetime.now().strftime('%Y/%m/%d %H:%M')) 
 
 
 if __name__ == '__main__':

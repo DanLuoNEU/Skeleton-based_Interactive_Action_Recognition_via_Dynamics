@@ -36,16 +36,12 @@ def main(args):
         # Initialize DYAN Dictionary
         Drr, Dtheta = get_Drr_Dtheta(args.N)
         # Select Network
-        net1 = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, thr_dif=args.th_d,
-                        wiRW=False, gpu_id=6).cuda(6)
-        net2 = DYANEnc(Drr=Drr, Dtheta=Dtheta, lam=args.lam_f, thr_dif=args.th_d,
-                        wiRW=True, gpu_id=7).cuda(7)
+        net1 = DYANEnc(args, Drr=Drr, Dtheta=Dtheta).cuda(7)
+        net2 = DYANEnc(args, Drr=Drr, Dtheta=Dtheta).cuda(7)
         # Directory to save the test log
 
         with torch.no_grad():
             for i, (data,_,_) in enumerate(testloader):
-                skeletons = data.cuda(args.gpu_id)
-                # batch_size, num_clips, dim_joints, T, num_joints, num_subj
                 skeletons = data.cuda(args.gpu_id)
                 # => batch_size, num_clips, num_subj, T, num_joints, dim_joints
                 skeletons = skeletons.transpose(2,5)
@@ -57,16 +53,18 @@ def main(args):
                     Y = torch.cat((skeletons[:,0,:,:],skeletons[:,1,:,:]),2).cuda(args.gpu_id)
                 else:
                     Y = skeletons.cuda(args.gpu_id)
-                C1, _, R1 = net1(Y.cuda(6), T) # y: (batch_size, num_clips) x T x (num_joints x (dim_joints) x num_subj)
-                C2, _, R2 = net2(Y.cuda(7), T)
+                C1, _, R1, B1 = net1(Y.cuda(7), T) # y: (batch_size, num_clips) x T x (num_joints x (dim_joints) x num_subj)
+                C2, _, R2, B2 = net2(Y.cuda(7), T)
                 # Sparsity Indicator
                 sp_0_1, sp_th_1 = sparsity(C1)
                 sp_0_2, sp_th_2 = sparsity(C2)
                 # c_t = np.random.random(1000).astype(float)
                 # writer.add_histogram('CT', c_t, i)
                 fig = plt.hist([C1[0].flatten().cpu().data.abs(),
-                                C2[0].flatten().cpu().data.abs()], bins=100, color=colors)
-                plt.xlim(xmin=0.4, xmax = 1.0)
+                                C2[0].flatten().cpu().data.abs()],
+                                bins=100, color=colors)
+                plt.xlim(xmin=0.05, xmax = 1)
+                plt.ylim(ymin=0, ymax = 20)
                 plt.savefig('scripts/C_woRW-wiRW.png')
                 plt.close()
     elif args.mode == 'cls':

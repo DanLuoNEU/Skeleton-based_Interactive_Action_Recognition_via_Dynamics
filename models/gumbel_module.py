@@ -53,11 +53,7 @@ class HardSoftmax(torch.autograd.Function):
     def forward(ctx, input,thresh):
         y_hard = input.clone()
         y_hard = y_hard.zero_()
-
-
         y_hard[input > thresh] =1
-
-
         return y_hard
 
     @staticmethod
@@ -119,6 +115,6 @@ if __name__ == '__main__':
 
     # logits = torch.randn(1, 161)
     logits = torch.tensor([0.001, -0.001, 0.12, 0.04, 0.0001])
-    out = gumbelSigmoid(logits, thresh=0.51,force_hard=True, temperature=0.01, inference=True)
+    out = gumbelSigmoid(logits, thresh=0.6,force_hard=True, temperature=0.01, inference=True)
 
-    print('check')
+    print(out)

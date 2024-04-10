@@ -131,24 +131,10 @@ class DYAN_B(nn.Module):
         self.Npole = args.N+1
         self.Drr = Drr
         self.Dtheta = Dtheta
-        self.wiCY = args.wiCY
-        self.wiBI  = args.wiBI
         self.wiCC = args.wiCC
         
-        self.sparseCoding = DYANEnc(self.Drr, self.Dtheta,
-                                    args.lam_f, args.th_d,
-                                    args.wiRW, args.gpu_id)
-        if args.wiD != '':
-            print(f"Loading Pretrained Model: {args.wiD}...")
-            update_dict = self.sparseCoding.state_dict()
-            state_dict = torch.load(args.wiD, map_location=args.map_loc)['state_dict']
-            pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
-            update_dict.update(pret_dict)
-            self.sparseCoding.load_state_dict(update_dict)
+        self.sparseCoding = DYANEnc(args, self.Drr, self.Dtheta)
         self.CoefNet = CoefNet(args, num_jts=num_joints)
-        if args.wiBI:
-            self.th_gumbel = args.th_gumbel
-            self.BinaryCoding = GumbelSigmoid()
         if args.wiCL:
             self.cls = nn.Sequential(nn.Linear(128,128),nn.LeakyReLU(),nn.Linear(128,args.num_class))
         else:
@@ -162,38 +148,34 @@ class DYAN_B(nn.Module):
                 torch.nn.init.xavier_uniform_(m.weight, gain=1)
         self.cls.apply(weight_init)
         
-    def forward_wiCC(self, C):
+    def forward_wiCC(self, feat_in):
 
-        f_cls = self.CoefNet(C)
+        f_cls = self.CoefNet(feat_in)
 
         return f_cls
 
-    def forward_woCC(self, C):
-        D = C.shape[-1]
-        lastFeat_1 = self.CoefNet(C[:,:,:int(D/2)])
-        lastFeat_2 = self.CoefNet(C[:,:,int(D/2):])
+    def forward_woCC(self, feat_in):
+        D = feat_in.shape[-1]
+        lastFeat_1 = self.CoefNet(feat_in[:,:,:int(D/2)])
+        lastFeat_2 = self.CoefNet(feat_in[:,:,int(D/2):])
         f_cls = torch.cat((lastFeat_1,lastFeat_2),1)
 
         return f_cls
 
     def forward(self, x, T):
-        # sparseCode, dict, Reconstruction  = self.sparseCoding.forward2(x, T) # w.o. RH
-        # sparseCode, Dict,_ = self.sparseCoding(x, T) #RH
-
         # C: N(161) x D(25x3x2), R: T x D
-        C, D, R = self.sparseCoding(x, T) # group lasso
-        if self.wiBI:
-            B = self.BinaryCoding(C**2, self.th_gumbel, force_hard=True,
-                                  temperature=0.1, inference=True)
-            C = C * B
-            R = torch.matmul(D, C)
-        else:
-            B = torch.zeros_like(C).to(C)
+        C, D, R, B = self.sparseCoding(x, T)
         # Concatenate Coefficients
-        if self.wiCC:
-            f_cls = self.forward_wiCC(C)
+        
+        if self.sparseCoding.wiBI:
+            feat_in = B
         else:
-            f_cls = self.forward_woCC(C)
+            feat_in = C
+        
+        if self.wiCC:
+            f_cls = self.forward_wiCC(feat_in)
+        else:
+            f_cls = self.forward_woCC(feat_in)
         
         label = self.cls(f_cls)
         return label, R , B

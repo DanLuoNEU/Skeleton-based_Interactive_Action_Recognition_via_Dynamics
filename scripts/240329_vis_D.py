@@ -21,9 +21,9 @@ def main(args):
     list_name.sort(key=sortKey)
 
     frames = []
-    r_0 = None
-    theta_0 = None
-    for path_pth in list_name:
+    r_0 = 0
+    theta_0 = 0
+    for i, path_pth in enumerate(list_name):
         name_pth = path_pth.split('/')[-1]
         state_dict = torch.load(path_pth, map_location='cpu')['state_dict']
         r = state_dict['rr'].numpy()
@@ -38,11 +38,19 @@ def main(args):
             ax.scatter(0, 1, c='green', s = 5)
             ax.scatter( theta, r, c='green', s = 5)
             ax.scatter(-theta, r, c='green', s = 5)
+        if i == len(list_name)-1:
+            ax.set_rmax(1.2)
+            ax.set_title(f"Dictionary @Epoch {name_pth.split('.')[0]}", va='top')
+            plt.draw()
+            plt.savefig(os.path.join(dir_pth, f'Dict_epoch{i}.png'))
         ax.scatter( theta_0, r_0, c='red', s = 5)
         ax.scatter(-theta_0, r_0, c='red', s = 5)
         ax.set_rmax(1.2)
         ax.set_title(f"Dictionary @Epoch {name_pth.split('.')[0]}", va='top')
         plt.draw()
+        if (i == 0):
+            plt.savefig(os.path.join(dir_pth, f'Dict_epoch{i}.png'))
+
         frame = np.frombuffer(plt.gcf().canvas.tostring_rgb(), dtype='uint8')
         frame = frame.reshape(plt.gcf().canvas.get_width_height()[::-1] + (3,))
         frames.append(frame)
