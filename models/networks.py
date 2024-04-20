@@ -79,13 +79,12 @@ class CoefNet(nn.Module):
         #     self.cls = nn.Sequential(nn.Linear(128, self.num_class))
         self.relu = nn.LeakyReLU()
 
-        'initialize model weights'
+        # Initialize model weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.Conv1d):
                 nn.init.kaiming_normal_(m.weight,mode='fan_out', nonlinearity='relu' )
-
             elif isinstance(m, nn.Linear):
                 torch.nn.init.xavier_uniform_(m.weight, gain=1)
 
@@ -102,11 +101,9 @@ class CoefNet(nn.Module):
             x_mut = self.relu(self.bn_mut(self.conv_mut(x_gl)))
             x_gl = torch.cat((x_gl, x_mut), 2)
             N_conv = x_gl.shape[-1]
-            x_new = torch.cat((x_gl.repeat(1,1,int(N/N_conv)),inp),1
-                            ).reshape(bz,1024+self.Npole, self.njts, -1)
+            x_new = torch.cat((x_gl.repeat(1,1,int(N/N_conv)),inp),1).reshape(bz,1024+self.Npole, self.njts, -1)
         else:
-            x_new = torch.cat((x_gl.repeat(1,1,N),inp),1
-                            ).reshape(bz,1024+self.Npole, self.njts, -1)
+            x_new = torch.cat((x_gl.repeat(1,1,N),inp),1).reshape(bz,1024+self.Npole, self.njts, -1)
 
 
         x_out = self.relu(self.bn4(self.conv4(x_new)))
@@ -128,33 +125,52 @@ class DYAN_B(nn.Module):
     def __init__(self, args, Drr=torch.zeros(0), Dtheta=torch.zeros(0),
                  num_joints=25):
         super(DYAN_B, self).__init__()
-        self.Npole = args.N+1
-        self.Drr = Drr
-        self.Dtheta = Dtheta
+        # self.Npole = args.N+1
+        # self.Drr = Drr
+        # self.Dtheta = Dtheta
         self.wiCC = args.wiCC
+        self.wiP = False
         
-        self.sparseCoding = DYANEnc(args, self.Drr, self.Dtheta)
-        self.CoefNet = CoefNet(args, num_jts=num_joints)
-        if args.wiCL:
-            self.cls = nn.Sequential(nn.Linear(128,128),nn.LeakyReLU(),nn.Linear(128,args.num_class))
-        else:
-            if self.wiCC:
-                self.cls = nn.Sequential(nn.Linear(128, args.num_class))
-            else:
-                self.cls = nn.Sequential(nn.Linear(128*2, args.num_class))
-
         def weight_init(m):
             if isinstance(m,nn.Linear):
                 torch.nn.init.xavier_uniform_(m.weight, gain=1)
+
+        # self.sparseCoding = DYANEnc(args, self.Drr, self.Dtheta)
+        self.sparseCoding = DYANEnc(args, Drr, Dtheta)
+        self.CoefNet = CoefNet(args, num_jts=num_joints)
+        dim_out = self.CoefNet.fc3.out_features
+        if self.wiCC:
+            self.cls = nn.Sequential(nn.Linear(dim_out, args.num_class))
+        else:
+            self.cls = nn.Sequential(nn.Linear(dim_out*2, args.num_class))
         self.cls.apply(weight_init)
         
-    def forward_wiCC(self, feat_in):
+        # For Contrastive Learning
+        if args.wiCL:
+            if args.mode == 'D':
+                # Projection Function for Feature Similarity
+                self.wiP = True
+                self.num_clips = args.num_clips
+                self.proj = nn.Sequential(nn.Linear(dim_out, dim_out),
+                                            nn.LeakyReLU())
+                self.proj.apply(weight_init)
+            # Loading pretrained model
+            print(f"Loading Pretrained Model: {args.pret}...")
+            update_dict = self.state_dict()
+            state_dict = torch.load(args.pret, map_location=args.map_loc)['state_dict']
+            pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
+            update_dict.update(pret_dict)
+            self.load_state_dict(update_dict)
+            
 
+    def forward_wiCC(self, feat_in):
+        """"""
         f_cls = self.CoefNet(feat_in)
 
         return f_cls
 
     def forward_woCC(self, feat_in):
+        """"""
         D = feat_in.shape[-1]
         lastFeat_1 = self.CoefNet(feat_in[:,:,:int(D/2)])
         lastFeat_2 = self.CoefNet(feat_in[:,:,int(D/2):])
@@ -163,22 +179,34 @@ class DYAN_B(nn.Module):
         return f_cls
 
     def forward(self, x, T):
-        # C: N(161) x D(25x3x2), R: T x D
+        """
+            x: batch_size x num_clips,  T, dim_joints x num_joints x num_subj
+            C: N(161) x D(25x3x2)
+            R: T x D
+        """
         C, D, R, B = self.sparseCoding(x, T)
-        # Concatenate Coefficients
-        
-        if self.sparseCoding.wiBI:
-            feat_in = B
+        # With Binarization part or not
+        if self.sparseCoding.wiBI:  feat_in = B
+        else:                       feat_in = C
+        # Concatenate Coefficients or not
+        if self.wiCC:               f_cls = self.forward_wiCC(feat_in)
+        else:                       f_cls = self.forward_woCC(feat_in)
+        # If there is a projection for different augmented input
+        if self.wiP:
+            # Projected features
+            Z = self.proj(f_cls)
+            # Reshape projecte feature
+            bz = x.shape[0]//self.num_clips
+            Z = torch.mean(Z.reshape(bz, self.num_clips, Z.shape[-1]), dim=1)
+            Z = F.normalize(Z, dim=1)
+            # Action Label classification
+            label = self.cls(f_cls)
+
+            return label, R, B, Z, C
         else:
-            feat_in = C
-        
-        if self.wiCC:
-            f_cls = self.forward_wiCC(feat_in)
-        else:
-            f_cls = self.forward_woCC(feat_in)
-        
-        label = self.cls(f_cls)
-        return label, R , B
+            label = self.cls(f_cls)
+
+            return label, R, B
 
 
 class binaryCoding(nn.Module):

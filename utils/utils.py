@@ -17,6 +17,7 @@ import torch.nn
 from torch.autograd import Variable
 
 from models.SparseCoding import gridRing
+from dataset.tools import _rot
 
 def sparsity(m, thr_zero=0.05):
     return torch.sum((m!=0))/m.numel(), (torch.abs(m)>=thr_zero).sum()/m.numel()
@@ -57,6 +58,38 @@ def accuracy(output, target, topk=(1,)):
 
 def dim_out(dim_in=0,k=1,s=0,p=1):
     return int(np.floor((dim_in-k+2*p)/s)+1)
+
+def affine_aug(data, t_delta=1.0, r_delta=0.3, s_delta=0.5):
+    """ Affine augmentation for Contrastive Learning, 3D skeleton
+    data: batch_size x num_clips x dim_joints x T x num_joints x num_subj, numpy
+
+    NOTE: random_rot(data_numpy:(dim_ske, T, num_joints, num_subj), theta), C T V M
+    """
+    B, C, D, T, J, S = data.shape
+    data_torch = data.permute(0,1,3,2,4,5).contiguous().view(B,C,T,D,J*S)
+    
+    # Translation
+    t_aug = torch.zeros(B,D).uniform_(-t_delta, t_delta)
+    # Scale
+    s_aug = torch.zeros(B,D).uniform_(1-s_delta, 1+s_delta)
+    # Rotation
+    r_aug = torch.zeros(B,D).uniform_(-r_delta, r_delta)
+    for i_b in range(B):
+        # T
+        trans = t_aug[i_b].repeat(C,T,J*S,1).permute(0,1,3,2)
+        data_torch[i_b]+=trans
+        # S
+        scale = s_aug[i_b].repeat(C,T,J*S,1).permute(0,1,3,2)
+        data_torch[i_b]*=scale
+        # R
+        rot = torch.stack([r_aug[i_b], ] * T, dim=0)
+        rot = _rot(rot)  # T,3,3
+        for i_c in range(C):
+            data_torch[i_b,i_c] = torch.matmul(rot, data_torch[i_b,i_c])
+    data_torch = data_torch.view(B, C, T, D, J, S).permute(0,1,3,2,4,5).contiguous()
+
+    return data_torch
+
 # def weightPoles(c_array, Drr, Dtheta, dictionary):
 #     c_array = c_array.cpu().numpy()
 #     r = Drr.cpu().numpy()

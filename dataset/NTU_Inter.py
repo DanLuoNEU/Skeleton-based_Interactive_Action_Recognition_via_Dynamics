@@ -14,7 +14,7 @@ from dataset.tools import valid_crop_resize, random_rot
 class NTU(Dataset):
     def __init__(self, data_dir="", mutual=True,
                  setup='cv', split='train',
-                 random_choose=False, random_shift=False,random_move=False, random_rot=True,
+                 random_choose=False, random_shift=False,random_move=False, random_rot=False,
                  window_size=120, normalization=False, debug=False, use_mmap=True,
                  bone=False, vel=False, entity_rearrangement=False, label_path=None,
                  p_interval=[0.5,1], T_D=36):
@@ -53,10 +53,7 @@ class NTU(Dataset):
         self.window_size = window_size
         self.normalization = normalization
         self.use_mmap = use_mmap
-        if self.split == 'train':
-            self.p_interval = p_interval
-        else:
-            self.p_interval = [0.95]
+        self.p_interval = p_interval if self.split == 'train' else [0.95]
         self.random_rot = random_rot
         self.bone = bone
         self.vel = vel
@@ -185,8 +182,9 @@ class NTU(Dataset):
         if self.vel:
             data_numpy[:, :-1] = data_numpy[:, 1:] - data_numpy[:, :-1]
             data_numpy[:, -1] = 0
-
+        # Multi Clips
         data_numpy=self.sample_seq(data_numpy)
+        
         return data_numpy, label, index
     
 if __name__ == '__main__':

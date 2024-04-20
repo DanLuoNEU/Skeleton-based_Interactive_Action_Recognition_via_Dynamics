@@ -563,7 +563,7 @@ if __name__ == '__main__':
     Dtheta = np.angle(P)
     Dtheta = torch.from_numpy(Dtheta).float()
     withMask = False
-    net = DYANEnc(Drr, Dtheta, lam, gpu_id)
+    net = DYANEnc(None, Drr, Dtheta)
     net.cuda(gpu_id)
     setup = 'setup1'  # v1,v2 train, v3 test;
     path_list = '../data/CV/' + setup + '/'

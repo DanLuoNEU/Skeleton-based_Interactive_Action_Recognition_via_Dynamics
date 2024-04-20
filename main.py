@@ -5,19 +5,19 @@ from torch.utils.tensorboard import SummaryWriter
 
 from dataset.NTU_Inter import NTU
 from dataset.NTU120_Inter import NTU120
-from train import init_seed, get_parser, train_D, train_cls
+from train import init_seed, get_parser, train_D, train_D_CL, train_cls
 
 
 def main(args):
     # Dataset
     if args.dataset=='NTU':
         trainSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train')
+                            split='train', random_rot=False)
         testSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
                             split='test')
     elif args.dataset=='NTU120':
         trainSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train')
+                            split='train', random_rot=True)
         testSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
                             split='test')
     
@@ -25,7 +25,7 @@ def main(args):
                              num_workers=args.num_workers, pin_memory=True)
     testloader = DataLoader(testSet, batch_size=args.bs, shuffle=False, 
                             num_workers=args.num_workers, pin_memory=True)
-    
+    args.num_clips = trainSet.num_clips
     # Log
     str_net_1 = f"{'wiCY' if args.wiCY else 'woCY'}_{'wiG' if args.wiG  else 'woG'}_{'wiRW' if args.wiRW else 'woRW'}_{'wiCC' if args.wiCC else 'woCC'}_"
     str_net_2 = f"{'wiF' if args.wiF else 'woF'}_{'wiBI' if args.wiBI else 'woBI'}_{'wiCL' if args.wiCL else 'woCL'}"
@@ -42,8 +42,11 @@ def main(args):
     writers=[SummaryWriter(log_dir=f'runs/{args.name_exp}_train'),
              SummaryWriter(log_dir=f'runs/{args.name_exp}_test')]
     if args.mode == 'D':
-        train_D(args, writers, trainloader, testloader)
-    elif args.mode == 'cls':
+        if args.wiCL:
+            train_D_CL(args, writers, trainloader, testloader)
+        else:
+            train_D(args, writers, trainloader, testloader)
+    if args.mode == 'cls':
         train_cls(args, writers, trainloader, testloader)
     
     print(args.name_exp)
