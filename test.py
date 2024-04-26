@@ -15,9 +15,9 @@ def main(args):
     # Dataset
     if args.dataset=='NTU':
         trainSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train')
+                            split='train', limb=args.wiL)
         testSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='test')
+                            split='test', limb=args.wiL)
     elif args.dataset=='NTU120':
         trainSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
                             split='train')
@@ -41,8 +41,9 @@ def main(args):
         else:
             net = DYANEnc(args,Drr,Dtheta).cuda(args.gpu_id)
         # Directory to save the test log
-        
+        net.eval()
         f_log = open(os.path.join(os.path.dirname(os.path.abspath(args.wiD)),'test.txt'),'w')
+        f_log.writelines([f"{arg}: {getattr(args, arg) or ''}\n" for arg in vars(args)])
         
         update_dict = net.state_dict()
         model_pret = torch.load(args.wiD, map_location=args.map_loc)
@@ -66,7 +67,19 @@ def main(args):
             net = DYAN_B(args, Drr=Drr, Dtheta=Dtheta).cuda(args.gpu_id)
         else:
             net = DYAN_B(args, Drr=Drr, Dtheta=Dtheta).cuda(args.gpu_id)
-        f_log = open(os.path.join(os.path.dirname(os.path.abspath(args.pret)),'test.txt'),'w')
+        if not args.wiCL:
+            # Loading pretrained model
+            print(f"Loading Pretrained Model: {args.pret}...")
+            update_dict = net.state_dict()
+            state_dict = torch.load(args.pret, map_location=args.map_loc)['state_dict']
+            pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
+            update_dict.update(pret_dict)
+            net.load_state_dict(update_dict)
+
+        net.eval()
+        i_batch = args.pret.split('/')[-1].split('.')[0]
+        f_log = open(os.path.join(os.path.dirname(os.path.abspath(args.pret)),f"test_{i_batch}.txt"),'w')
+        for arg in vars(args):  log(f"{arg}: {str(getattr(args, arg))}",f_log)
 
         loss, loss_mse, loss_cls, loss_bi, acc = test_cls(args, trainloader, net)
         log(f'Train|acc|{acc}%|loss|{loss}|l_cls|{loss_cls}|l_bi|{loss_bi}|l_mse|{loss_mse}',f_log)

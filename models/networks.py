@@ -43,10 +43,10 @@ class CoefNet(nn.Module):
         self.bn3 = nn.BatchNorm1d(num_features=1024, eps=1e-5, affine=True)
         w_3 = dim_out(w_2,self.dim_ske,2,1)
         
-        self.pool = nn.AvgPool1d(kernel_size=(self.njts))
+        self.pool = nn.AvgPool1d(kernel_size=(num_jts))
         self.conv_mut = nn.Conv1d(1024, 1024, 2, stride=1, padding=0)
         self.bn_mut = nn.BatchNorm1d(num_features=1024, eps=1e-5, affine=True)
-        w_p = int(w_3/self.njts)
+        w_p = int(w_3/num_jts)
 
         # 25,2 -> 23,4 
         self.conv4 = nn.Conv2d(self.Npole + 1024, 1024, (3, 1), stride=1, padding=(0, 1))
@@ -130,6 +130,8 @@ class DYAN_B(nn.Module):
         # self.Dtheta = Dtheta
         self.wiCC = args.wiCC
         self.wiP = False
+        if args.wiL: 
+            num_joints = 34
         
         def weight_init(m):
             if isinstance(m,nn.Linear):
@@ -152,7 +154,7 @@ class DYAN_B(nn.Module):
                 self.wiP = True
                 self.num_clips = args.num_clips
                 self.proj = nn.Sequential(nn.Linear(dim_out, dim_out),
-                                            nn.LeakyReLU())
+                                          nn.LeakyReLU())
                 self.proj.apply(weight_init)
             # Loading pretrained model
             print(f"Loading Pretrained Model: {args.pret}...")
@@ -292,7 +294,7 @@ class classificationWBinarization(nn.Module):
         self.useCL = useCL
         self.BinaryCoding = binaryCoding(num_binary=self.num_binary)
         # self.Classifier = DYANEnc(num_class=self.num_class, Npole=Npole,dataType=self.dataType, useCL=self.useCL)
-        self.Classifier = DYANEnc()
+        self.Classifier = DYANEnc(None)
 
     def forward(self, x):
         'x is coefficients'

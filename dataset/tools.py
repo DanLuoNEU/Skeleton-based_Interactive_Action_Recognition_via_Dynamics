@@ -75,4 +75,4 @@ def random_rot(data_numpy, theta=0.3):
     data_torch = torch.matmul(rot, data_torch)
     data_torch = data_torch.view(T, C, V, M).permute(1, 0, 2, 3).contiguous()
 
-    return data_torch
+    return data_torch.numpy()

@@ -12,9 +12,9 @@ def main(args):
     # Dataset
     if args.dataset=='NTU':
         trainSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train', random_rot=False)
+                            split='train', random_rot=True, limb=args.wiL)
         testSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='test')
+                            split='test', limb=args.wiL)
     elif args.dataset=='NTU120':
         trainSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
                             split='train', random_rot=True)

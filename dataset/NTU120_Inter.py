@@ -16,7 +16,7 @@ class NTU120(Dataset):
                  setup='CSet', split='train',
                  random_choose=False, random_shift=False,random_move=False, random_rot=True,
                  window_size=120, normalization=False, debug=False, use_mmap=True,
-                 bone=False, vel=False, entity_rearrangement=False, label_path=None,
+                 limb=False, bone=False, vel=False, entity_rearrangement=False, label_path=None,
                  p_interval=[0.5,1], T_D=36):
         """
         data_dir:
