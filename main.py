@@ -9,17 +9,25 @@ from train import init_seed, get_parser, train_D, train_D_CL, train_cls
 
 
 def main(args):
+    args.map_loc = "cuda:"+str(args.gpu_id)
+    
     # Dataset
+    args.random_rot = False if (args.wiCL and args.mode=='D') or args.wiAff else True
+    if args.wiAff:  args.trs = [float(scale) for scale in args.trs.split(',')]
     if args.dataset=='NTU':
         trainSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train', random_rot=True, limb=args.wiL)
+                        split='train', setup=args.setup,
+                        random_rot=args.random_rot, limb=args.wiL)
         testSet = NTU(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='test', limb=args.wiL)
+                        split='test', setup=args.setup,
+                        limb=args.wiL)
     elif args.dataset=='NTU120':
         trainSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='train', random_rot=True)
+                        split='train', setup=args.setup,
+                        random_rot=args.random_rot, limb=args.wiL)
         testSet = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN",
-                            split='test')
+                        split='test', setup=args.setup,
+                        limb=args.wiL)
     
     trainloader = DataLoader(trainSet, batch_size=args.bs, shuffle=True,
                              num_workers=args.num_workers, pin_memory=True)
@@ -56,7 +64,6 @@ def main(args):
 if __name__ == '__main__':
     parser = get_parser()
     args=parser.parse_args()
-    args.map_loc = "cuda:"+str(args.gpu_id)
 
     init_seed(args.seed)
     main(args)

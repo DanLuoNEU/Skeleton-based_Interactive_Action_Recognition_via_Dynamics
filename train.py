@@ -41,6 +41,7 @@ def get_parser():
     # Dataset
     parser.add_argument('--dataset', default='NTU')
     parser.add_argument('--data_dir', default='')
+    parser.add_argument('--setup', default='cv')
     parser.add_argument('--data_dim', default=3, type=int)
     parser.add_argument('--num_class', default=11, type=int)
     parser.add_argument('--wiL', default='0', type=str2bool, help='Limb(middle point of joints)')
@@ -69,8 +70,9 @@ def get_parser():
     parser.add_argument('--wiCC', default='1', type=str2bool, help='Concatenated Coefficients')
     parser.add_argument('--wiF',  default='1', type=str2bool, help='Freeze DYAN Reconstruction net')
     parser.add_argument('--wiAff',default='0', type=str2bool, help='Affine Augmentation')
+    parser.add_argument('--trs', default='1.0,0.3,0.5', type=str, help='Data Augmentation setup')
     parser.add_argument('--wiCL', default='0', type=str2bool, help='Use Contrast Learning')
-    parser.add_argument('--setup',default='cv')
+    
     parser.add_argument('--pret',default='')
     # parser.add_argument('--pret',default='/data/dluo/work_dir/2312_CVAC_NTU-Inter/NTU_cv_cls_wiCY_woG_wiRW_wiCC_wiF_wiBI_woCL_T36_f1.7e+00_d1.0e-05_mse1_bi1_th5.0e-01_te1.0e-02_cls2/20240415_1632/95.pth')
     # Training
@@ -125,13 +127,12 @@ def train_D(args, writers,
     writers[1].add_scalar("Sparsity_0", sp_0,     0)
     writers[1].add_scalar("Sparsity_th",sp_th,    0)
     
-
-    net.train()
     for epoch in range(1, args.ep_D+1):
+        net.train()
         losses, l_mse, l_bi = AverageMeter(), AverageMeter(), AverageMeter()
         Sp_0, Sp_th = AverageMeter(),AverageMeter()
         for i, (data,_,_) in enumerate(trainloader):
-            if args.wiAff:  data = affine_aug(data)
+            if args.wiAff:  data = affine_aug(data, args.trs[0], args.trs[1], args.trs[2])
             # batch_size, num_clips, dim_joints, T, num_joints, num_subj
             skeletons = data.cuda(args.gpu_id)
             # => batch_size, num_clips, num_subj, T, num_joints, dim_joints
@@ -196,6 +197,7 @@ def test_D(args, dataloader, net):
     losses, l_mse, l_bi = AverageMeter(), AverageMeter(), AverageMeter()
     Sp_0, Sp_th = AverageMeter(),AverageMeter()
     with torch.no_grad():
+        net.eval()
         for _, (data,_,_) in enumerate(dataloader):
             skeletons = data.cuda(args.gpu_id)
             # batch_size, num_clips, dim_joints, T, num_joints, num_subj
@@ -270,8 +272,8 @@ def train_D_CL(args, writers, trainloader, testloader):
     writers[1].add_scalar("Loss_MSE", loss_mse, 0)
     
     # START Training
-    net.train()
     for epoch in range(1, args.ep_D+1):
+        net.train()
         losses, l_mse, l_cls, l_bi, l_cl = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()
         Sp_0, Sp_th = AverageMeter(), AverageMeter()
         accs = AverageMeter()
@@ -413,7 +415,7 @@ def train_cls(args, writers, trainloader, testloader):
         net.train()
         for i, (data,label,_) in enumerate(trainloader):
             # batch_size, num_clips, dim_joints, T, num_joints, num_subj
-            if args.wiAff:  data = affine_aug(data)
+            if args.wiAff:  data = affine_aug(data, args.trs[0], args.trs[1], args.trs[2])
             skeletons = data.cuda(args.gpu_id)
             gt_label = label.cuda(args.gpu_id)
             # => batch_size, num_clips, num_subj, T, num_joints, dim_joints
@@ -466,7 +468,7 @@ def train_cls(args, writers, trainloader, testloader):
             writers[1].add_scalar("Loss_CLS", loss_cls, epoch)
             writers[1].add_scalar("Loss_BI",  loss_bi,  epoch)
             writers[1].add_scalar("Loss_MSE", loss_mse, epoch)
-    log(f"END Timstamp:{datetime.datetime.now().strftime('%Y:%m:%d %H:%M')}",f_log)
+    log(f"END Timstamp: {datetime.datetime.now().strftime('%Y/%m/%d %H:%M')}",f_log)
     f_log.close()
 
 

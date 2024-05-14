@@ -156,6 +156,7 @@ class DYAN_B(nn.Module):
                 self.proj = nn.Sequential(nn.Linear(dim_out, dim_out),
                                           nn.LeakyReLU())
                 self.proj.apply(weight_init)
+        if args.pret != '':
             # Loading pretrained model
             print(f"Loading Pretrained Model: {args.pret}...")
             update_dict = self.state_dict()
@@ -163,7 +164,9 @@ class DYAN_B(nn.Module):
             pret_dict = {k: v for k, v in state_dict.items() if k in update_dict}
             update_dict.update(pret_dict)
             self.load_state_dict(update_dict)
-            
+            # print([k for k,v in update_dict.items()])
+            # print([k for k,v in pret_dict.items()])
+            # exit(0)
 
     def forward_wiCC(self, feat_in):
         """"""

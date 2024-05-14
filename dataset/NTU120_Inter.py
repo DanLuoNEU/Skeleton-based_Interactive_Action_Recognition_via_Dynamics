@@ -14,7 +14,7 @@ from dataset.tools import valid_crop_resize, random_rot
 class NTU120(Dataset):
     def __init__(self, data_dir="", mutual=True,
                  setup='CSet', split='train',
-                 random_choose=False, random_shift=False,random_move=False, random_rot=True,
+                 random_choose=False, random_shift=False,random_move=False, random_rot=False,
                  window_size=120, normalization=False, debug=False, use_mmap=True,
                  limb=False, bone=False, vel=False, entity_rearrangement=False, label_path=None,
                  p_interval=[0.5,1], T_D=36):
@@ -38,7 +38,7 @@ class NTU120(Dataset):
         entity_rearrangement: If true, use entity rearrangement (interactive actions)
         """
         self.debug = debug
-        self.data_path = os.path.join(data_dir,f"data/ntu120/NTU120_{setup}.npz")
+        self.data_path = os.path.join(data_dir,f"data/ntu120/NTU120_{setup[:2].upper()+setup[2:].lower()}.npz")
         self.mutual = mutual
         if self.mutual:
             self.num_classes = 26
@@ -53,11 +53,9 @@ class NTU120(Dataset):
         self.window_size = window_size
         self.normalization = normalization
         self.use_mmap = use_mmap
-        if self.split == 'train':
-            self.p_interval = p_interval
-        else:
-            self.p_interval = [0.95]
+        self.p_interval = p_interval if self.split == 'train' else [0.95]
         self.random_rot = random_rot
+        self.limb = limb
         self.bone = bone
         self.vel = vel
         self.entity_rearrangement = entity_rearrangement
@@ -165,7 +163,7 @@ class NTU120(Dataset):
         return self
 
     def __getitem__(self, index):
-        data_numpy = self.data[index]
+        data_numpy = self.data[index] # (T,M x V x C | T(120), num_subj(2) x num_joints(25) x dim_ske(3))
         label = self.label[index]
         data_numpy = np.array(data_numpy)
         valid_frame_num = np.sum(data_numpy.sum(0).sum(-1).sum(-1) != 0)
@@ -175,6 +173,17 @@ class NTU120(Dataset):
             data_numpy = random_rot(data_numpy)
         if self.entity_rearrangement:
             data_numpy = data_numpy[:,:,:,torch.randperm(data_numpy.size(3))]
+        if self.limb:
+            limb_pairs = ((11,10),(10,9),(5,6),(6,7),      # Arm R+L
+                          (17,18),(18,19),(13,14),(14,15), # Leg R+L
+                          (21,4))                          # Head & Shoulder Center
+            num_limbs = len(limb_pairs)
+            C,T,V,M = data_numpy.shape
+            limb_data_numpy = np.zeros((C,T,V+num_limbs,M), dtype=data_numpy.dtype)
+            limb_data_numpy[:,:,:V,:] = data_numpy
+            for i_limb,(l1,l2) in enumerate(limb_pairs):
+                limb_data_numpy[:,:,V+i_limb,:] = (data_numpy[:, :, l1 - 1] + data_numpy[:, :, l2 - 1])/2
+            data_numpy = limb_data_numpy
         if self.bone:
             ntu_pairs = ((1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5),
                 (7, 6), (8, 7), (9, 21), (10, 9), (11, 10), (12, 11),
@@ -192,7 +201,7 @@ class NTU120(Dataset):
         return data_numpy, label, index
     
 if __name__ == '__main__':
-    dataset = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/19_IRN/")
+    dataset = NTU120(data_dir="/data/dluo/datasets/NTU-RGBD/nturgbd_skeletons/21_CTR-GCN")
 
 
     # with open('/data/NTU-RGBD/ntu_rgb_missings_60.txt', 'r') as f:
